@@ -308,13 +308,24 @@ def get_args(input_args: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument("--no_l2_norm", action="store_true", default=False)
     parser.add_argument("--use_xformers", action="store_true", default=False)
     parser.add_argument("--use_self_extend", action="store_true", default=False)
+    
+    # OpenAI API相关参数
+    parser.add_argument("--use_openai", action="store_true", default=False, help="使用OpenAI API")
+    parser.add_argument("--api_key", type=str, default=None, help="OpenAI API密钥")
+    parser.add_argument("--base_url", type=str, default=None, help="OpenAI API基础URL")
+    parser.add_argument("--model_name", type=str, default=None, help="OpenAI模型名称")
+    parser.add_argument("--max_retries", type=int, default=3, help="API调用最大重试次数")
+    parser.add_argument("--retry_delay", type=int, default=1, help="API调用重试延迟秒数")
+    parser.add_argument("--max_input_tokens", type=int, default=8192, help="模型最大输入token数")
 
     args = parser.parse_args(input_args)
 
-    base_name: str = os.path.basename(os.path.normpath(args.model_name_or_path))
-    logger.info(f'base_name: {base_name}')
-    args.pool_type = MODEL_NAME_TO_POOL_TYPE.get(base_name, args.pool_type)
-    args.prefix_type = MODEL_NAME_TO_PREFIX_TYPE.get(base_name, args.prefix_type)
+    # 只有在使用本地模型时才处理model_name_or_path
+    if not args.use_openai and args.model_name_or_path:
+        base_name: str = os.path.basename(os.path.normpath(args.model_name_or_path))
+        logger.info(f'base_name: {base_name}')
+        args.pool_type = MODEL_NAME_TO_POOL_TYPE.get(base_name, args.pool_type)
+        args.prefix_type = MODEL_NAME_TO_PREFIX_TYPE.get(base_name, args.prefix_type)
 
     if args.prefix_type == 'bge':
         args.prompt: str = """Represent this sentence for searching relevant passages: """

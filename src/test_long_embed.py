@@ -73,9 +73,9 @@ def main():
         
     logger.info(output_dict)
 
-    if len(args.task_list) == 6:
-        with open(os.path.join(mteb_output_dir, 'overall_results.json'), 'w') as f:
-            json.dump(output_dict, f, indent=4)
+    # if len(args.task_list) == 6:
+    with open(os.path.join(mteb_output_dir, 'overall_results.json'), 'w') as f:
+        json.dump(output_dict, f, indent=4)
 
     
         
