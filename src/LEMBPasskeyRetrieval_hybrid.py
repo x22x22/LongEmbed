@@ -4,7 +4,6 @@ import json
 import pickle
 import hashlib
 import time
-import numpy as np
 from mteb.abstasks.TaskMetadata import TaskMetadata
 from mteb.abstasks.AbsTaskRetrieval import AbsTaskRetrieval
 
@@ -12,7 +11,6 @@ from mteb.abstasks.AbsTaskRetrieval import AbsTaskRetrieval
 class LEMBPasskeyRetrieval(AbsTaskRetrieval):
     _EVAL_SPLIT = "test"
     _CACHE_DIR = "./cache/passkey"
-    _ENCODING_CACHE_DIR = "./cache/passkey/encodings"
 
     metadata = TaskMetadata(
         name="LEMBPasskeyRetrieval",
@@ -46,116 +44,6 @@ class LEMBPasskeyRetrieval(AbsTaskRetrieval):
         """获取缓存文件路径"""
         os.makedirs(self._CACHE_DIR, exist_ok=True)
         return os.path.join(self._CACHE_DIR, f"passkey_data_{context_length}.pkl")
-
-    def _get_encoding_cache_path(self, text_hash, encoding_type="default"):
-        """获取编码缓存文件路径"""
-        os.makedirs(self._ENCODING_CACHE_DIR, exist_ok=True)
-        return os.path.join(self._ENCODING_CACHE_DIR, f"encoding_{encoding_type}_{text_hash}.npy")
-
-    def _get_text_hash(self, text):
-        """获取文本的哈希值作为缓存键"""
-        if isinstance(text, list):
-            # 对于文本列表，计算整个列表的哈希
-            combined_text = "\n".join(str(t) for t in text)
-        else:
-            combined_text = str(text)
-        return hashlib.md5(combined_text.encode('utf-8')).hexdigest()
-
-    def _load_encoding_from_cache(self, text_hash, encoding_type="default"):
-        """从缓存加载编码结果"""
-        cache_path = self._get_encoding_cache_path(text_hash, encoding_type)
-        if os.path.exists(cache_path):
-            try:
-                encoding = np.load(cache_path)
-                return encoding
-            except Exception as e:
-                print(f"⚠️ 编码缓存加载失败: {e}")
-                return None
-        return None
-
-    def _save_encoding_to_cache(self, text_hash, encoding, encoding_type="default"):
-        """保存编码结果到缓存"""
-        cache_path = self._get_encoding_cache_path(text_hash, encoding_type)
-        try:
-            np.save(cache_path, encoding)
-        except Exception as e:
-            print(f"⚠️ 编码缓存保存失败: {e}")
-
-    def encode_with_cache(self, model, texts, batch_size=32, encoding_type="default", **kwargs):
-        """带缓存的编码方法"""
-        if isinstance(texts, str):
-            texts = [texts]
-        
-        text_hash = self._get_text_hash(texts)
-        
-        # 尝试从缓存加载
-        cached_encoding = self._load_encoding_from_cache(text_hash, encoding_type)
-        if cached_encoding is not None:
-            print(f"🎯 编码缓存命中: {len(texts)} 个文本 (type: {encoding_type})")
-            return cached_encoding
-        
-        # 缓存未命中，调用模型编码
-        print(f"🔄 编码缓存未命中，调用模型编码: {len(texts)} 个文本 (type: {encoding_type})")
-        start_time = time.time()
-        
-        # 根据编码类型选择不同的编码方法
-        if encoding_type == "queries" and hasattr(model, "encode_queries"):
-            encoding = model.encode_queries(texts, batch_size=batch_size, **kwargs)
-        elif encoding_type == "corpus" and hasattr(model, "encode_corpus"):
-            # 转换为corpus格式
-            corpus_format = [{"text": text} for text in texts]
-            encoding = model.encode_corpus(corpus_format, batch_size=batch_size, **kwargs)
-        else:
-            # 默认编码方法
-            encoding = model.encode(texts, batch_size=batch_size, **kwargs)
-        
-        elapsed = time.time() - start_time
-        print(f"✅ 模型编码完成: {len(texts)} 个文本，耗时 {elapsed:.1f}s (type: {encoding_type})")
-        
-        # 保存到缓存
-        self._save_encoding_to_cache(text_hash, encoding, encoding_type)
-        
-        return encoding
-
-    def create_cached_model_wrapper(self, original_model):
-        """创建带缓存功能的模型包装器"""
-        class CachedModelWrapper:
-            def __init__(self, model, task_instance):
-                self.model = model
-                self.task = task_instance
-                # 复制原模型的所有其他属性
-                for attr in dir(model):
-                    if not attr.startswith('_') and attr not in ['encode', 'encode_queries', 'encode_corpus']:
-                        try:
-                            setattr(self, attr, getattr(model, attr))
-                        except:
-                            pass
-            
-            def encode(self, texts, batch_size=32, **kwargs):
-                return self.task.encode_with_cache(
-                    self.model, texts, batch_size=batch_size, encoding_type="default", **kwargs
-                )
-            
-            def encode_queries(self, texts, batch_size=32, **kwargs):
-                return self.task.encode_with_cache(
-                    self.model, texts, batch_size=batch_size, encoding_type="queries", **kwargs
-                )
-            
-            def encode_corpus(self, corpus, batch_size=32, **kwargs):
-                # 提取文本用于缓存键计算
-                if isinstance(corpus, list) and len(corpus) > 0:
-                    if isinstance(corpus[0], dict) and 'text' in corpus[0]:
-                        texts = [item['text'] for item in corpus]
-                    else:
-                        texts = corpus
-                else:
-                    texts = corpus
-                
-                return self.task.encode_with_cache(
-                    self.model, texts, batch_size=batch_size, encoding_type="corpus", **kwargs
-                )
-        
-        return CachedModelWrapper(original_model, self)
 
     def _get_file_hash(self, file_path):
         """获取文件的哈希值，用于检测文件是否更改"""

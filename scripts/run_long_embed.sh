@@ -9,11 +9,11 @@ if [[ $# -ge 3 ]]; then
 fi
 
 # task_list=("LEMBSummScreenFDRetrieval" "LEMBQMSumRetrieval" "LEMBWikimQARetrieval" "LEMBNarrativeQARetrieval")
-# task_list=("LEMBNeedleRetrieval" "LEMBPasskeyRetrieval")
-task_list=("LEMBSummScreenFDRetrieval" "LEMBQMSumRetrieval" "LEMBWikimQARetrieval" "LEMBNarrativeQARetrieval" "LEMBNeedleRetrieval" "LEMBPasskeyRetrieval")
+task_list=("LEMBNeedleRetrieval" "LEMBPasskeyRetrieval")
+# task_list=("LEMBSummScreenFDRetrieval" "LEMBQMSumRetrieval" "LEMBWikimQARetrieval" "LEMBNarrativeQARetrieval" "LEMBNeedleRetrieval" "LEMBPasskeyRetrieval")
 
 export CHUNKING_MODE="no_chunk"
-export CUDA_VISIBLE_DEVICES=2
+export CUDA_VISIBLE_DEVICES=0
 
 unset RANK
 
@@ -21,7 +21,7 @@ if [ $model_type = "mistral_ntk" ]; then
     python ${debug_mode} src/test_long_embed.py \
         --model_name_or_path ${model_name_or_path} \
         --output_dir ./results/ \
-        --window_length_list 256 512 1024 2048 4096 8192 16384 32768 \
+        --window_length_list 256 512 1024 2048 4096 8192 16384 32768 65536 \
         --batch_size 4 \
         --use_fp16 \
         --use_xformers \
@@ -33,7 +33,7 @@ elif [ $model_type = "mistral_se" ]; then
     python ${debug_mode} src/test_long_embed.py \
         --model_name_or_path ${model_name_or_path} \
         --output_dir ./results/ \
-        --window_length_list 256 512 1024 2048 4096 8192 16384 32768 \
+        --window_length_list 256 512 1024 2048 4096 8192 16384 32768 65536 \
         --batch_size 1 \
         --use_fp16 \
         --task_list "${task_list[@]}" \
@@ -47,7 +47,7 @@ elif [ $model_type = "e5rope_ntk" ]; then
     python ${debug_mode} src/test_long_embed.py \
         --model_name_or_path ${model_name_or_path} \
         --output_dir ./results/ \
-        --window_length_list 256 512 1024 2048 4096 8192 16384 32768 \
+        --window_length_list 256 512 1024 2048 4096 8192 16384 32768 65536 \
         --batch_size 16 \
         --use_fp16 \
         --use_xformers \
@@ -60,7 +60,7 @@ elif [ $model_type = "e5rope_se" ]; then
     python ${debug_mode} src/test_long_embed.py \
         --model_name_or_path ${model_name_or_path} \
         --output_dir ./results/ \
-        --window_length_list 256 512 1024 2048 4096 8192 16384 32768 \
+        --window_length_list 256 512 1024 2048 4096 8192 16384 32768 65536 \
         --batch_size 4 \
         --use_fp16 \
         --task_list "${task_list[@]}" \
@@ -74,7 +74,7 @@ elif [ $model_type = "group" ]; then
     python ${debug_mode} src/test_long_embed.py \
         --model_name_or_path ${model_name_or_path} \
         --output_dir ./results/ \
-        --window_length_list 256 512 1024 2048 4096 8192 16384 32768 \
+        --window_length_list 256 512 1024 2048 4096 8192 16384 32768 65536 \
         --batch_size 4 \
         --use_fp16 \
         --use_xformers \
@@ -87,7 +87,7 @@ elif [ $model_type = "recur" ]; then
     python ${debug_mode} src/test_long_embed.py \
         --model_name_or_path ${model_name_or_path} \
         --output_dir ./results/ \
-        --window_length_list 256 512 1024 2048 4096 8192 16384 32768 \
+        --window_length_list 256 512 1024 2048 4096 8192 16384 32768 65536 \
         --batch_size 16 \
         --use_fp16 \
         --use_xformers \
@@ -101,7 +101,7 @@ elif [ $model_type = "interpolate" ]; then
     python ${debug_mode} src/test_long_embed.py \
         --model_name_or_path ${model_name_or_path} \
         --output_dir ./results/ \
-        --window_length_list 256 512 1024 2048 4096 8192 16384 32768 \
+        --window_length_list 256 512 1024 2048 4096 8192 16384 32768 65536 \
         --batch_size 4 \
         --use_fp16 \
         --use_xformers \
@@ -120,7 +120,7 @@ elif [ $model_type = "pcw" ]; then
     python ${debug_mode} src/test_long_embed.py \
         --model_name_or_path ${model_name_or_path} \
         --output_dir ./results/ \
-        --window_length_list 256 512 1024 2048 4096 8192 16384 32768 \
+        --window_length_list 256 512 1024 2048 4096 8192 16384 32768 65536 \
         --batch_size 8 \
         --use_xformers \
         --pos_mode "original" \
@@ -134,7 +134,7 @@ elif [ $model_type = "nomic" ]; then
     python ${debug_mode} src/test_long_embed.py \
         --model_name_or_path ${model_name_or_path} \
         --output_dir ./results/ \
-        --window_length_list 256 512 1024 2048 4096 8192 16384 32768 \
+        --window_length_list 256 512 1024 2048 4096 8192 16384 32768 65536 \
         --batch_size 8 \
         --use_fp16 \
         --task_list "${task_list[@]}" \
@@ -147,7 +147,7 @@ elif [ $model_type = "bge-m3" ]; then
     python ${debug_mode} src/test_long_embed.py \
         --model_name_or_path ${model_name_or_path} \
         --output_dir ./results/ \
-        --window_length_list 256 512 1024 2048 4096 8192 16384 32768 \
+        --window_length_list 256 512 1024 2048 4096 8192 16384 32768 65536 \
         --batch_size 4 \
         --use_fp16 \
         --use_xformers \
@@ -160,7 +160,7 @@ elif [ $model_type = "mistral" ]; then
     python ${debug_mode} src/test_long_embed.py \
         --model_name_or_path ${model_name_or_path} \
         --output_dir ./results/ \
-        --window_length_list 256 512 1024 2048 4096 8192 16384 32768 \
+        --window_length_list 256 512 1024 2048 4096 8192 16384 32768 65536 \
         --batch_size 8 \
         --use_fp16 \
         --use_xformers \
@@ -173,7 +173,7 @@ elif [ $model_type = "default" ]; then
     python ${debug_mode} src/test_long_embed.py \
         --model_name_or_path ${model_name_or_path} \
         --output_dir ./results/ \
-        --window_length_list 256 512 1024 2048 4096 8192 16384 32768 \
+        --window_length_list 256 512 1024 2048 4096 8192 16384 32768 65536 \
         --batch_size 8 \
         --use_fp16 \
         --use_xformers \
