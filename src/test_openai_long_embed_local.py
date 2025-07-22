@@ -67,6 +67,17 @@ class LocalTaskEvaluator:
                     # 创建带缓存功能的模型包装器
                     cached_model = task.create_cached_model_wrapper(self.model)
                     logger.info(f"  🚀 已启用编码缓存: {task_name} context_length={ctx_len}")
+                    
+                    # 验证缓存包装器的pool_type传递
+                    if hasattr(cached_model, 'pool_type') and hasattr(self.model, 'pool_type'):
+                        if cached_model.pool_type == self.model.pool_type:
+                            logger.info(f"  ✅ 缓存包装器pool_type正确传递: {cached_model.pool_type}")
+                        else:
+                            logger.warning(f"  ⚠️ 缓存包装器pool_type不一致: wrapper={cached_model.pool_type}, original={self.model.pool_type}")
+                    elif hasattr(self.model, 'pool_type'):
+                        logger.warning(f"  ⚠️ 缓存包装器缺少pool_type属性，原模型有: {self.model.pool_type}")
+                    else:
+                        logger.info(f"  📝 原模型和缓存包装器都没有pool_type属性")
 
                     # 为每个长度创建独立的输出目录
                     length_output_dir = os.path.join(self.output_dir, f"ctx_{ctx_len}")
@@ -189,6 +200,23 @@ def main():
         model = RetrievalModel(args)
         model_name = os.path.basename(os.path.normpath(args.model_name_or_path))
 
+    # 验证pool_type设置
+    if hasattr(model, 'pool_type'):
+        logger.info(f"✅ 模型pool_type已设置: {model.pool_type}")
+    else:
+        logger.warning("⚠️ 模型缺少pool_type属性")
+    
+    # 打印模型关键配置（用于调试缓存）
+    logger.info("🔧 模型配置用于缓存键计算:")
+    logger.info(f"  - model_name: {getattr(model, 'model_name', 'N/A')}")
+    logger.info(f"  - pool_type: {getattr(model, 'pool_type', 'N/A')}")
+    logger.info(f"  - prefix_type: {getattr(model, 'prefix_type', 'N/A')}")
+    logger.info(f"  - l2_norm: {getattr(model, 'l2_norm', 'N/A')}")
+    if hasattr(model, 'encode_max_length'):
+        logger.info(f"  - encode_max_length: {model.encode_max_length}")
+    if hasattr(model, 'model_name_or_path'):
+        logger.info(f"  - model_name_or_path: {model.model_name_or_path}")
+
     # Set output directory
     mteb_output_dir = os.path.join(args.output_dir, model_name)
 
@@ -212,8 +240,14 @@ def main():
     # If using OpenAI, add identifier
     if args.use_openai:
         mteb_output_dir += "_openai_local"
+        # 添加pool_type到目录名（仅当使用OpenAI且有pool_type时）
+        if hasattr(model, 'pool_type') and model.pool_type != 'avg':  # avg是默认值，不加到目录名
+            mteb_output_dir += f"_pool_{model.pool_type}"
     else:
         mteb_output_dir += "_local"
+        # 对于本地模型，如果pool_type不是模型默认值，也加到目录名
+        if hasattr(model, 'pool_type') and model.pool_type != 'avg':
+            mteb_output_dir += f"_pool_{model.pool_type}"
 
     os.makedirs(args.output_dir, exist_ok=True)
     os.makedirs(mteb_output_dir, exist_ok=True)
@@ -234,6 +268,32 @@ def main():
         context_length_list.sort()
 
         evaluator = LocalTaskEvaluator(model, mteb_output_dir, args.batch_size)
+        
+        # 添加缓存管理功能
+        if needle_passkey_task_list:
+            # 显示缓存统计信息
+            logger.info("📊 缓存统计信息:")
+            for task_name in needle_passkey_task_list:
+                if task_name == "LEMBNeedleRetrieval":
+                    task_instance = LEMBNeedleRetrieval()
+                elif task_name == "LEMBPasskeyRetrieval":
+                    task_instance = LEMBPasskeyRetrieval()
+                else:
+                    continue
+                
+                cache_info = task_instance.get_cache_info()
+                logger.info(f"  {task_name}: {cache_info['data_cache_files']} 数据缓存, {cache_info['encoding_cache_files']} 编码缓存, {cache_info['total_cache_size_mb']:.1f} MB")
+                
+                # 如果用户设置了环境变量来清理缓存
+                clear_cache_days = os.getenv("CLEAR_CACHE_DAYS")
+                if clear_cache_days:
+                    try:
+                        days = int(clear_cache_days)
+                        logger.info(f"🧹 清理 {days} 天前的编码缓存...")
+                        task_instance.clear_encoding_cache(older_than_days=days)
+                    except ValueError:
+                        logger.warning(f"无效的 CLEAR_CACHE_DAYS 值: {clear_cache_days}")
+        
         results = evaluator.evaluate_local_tasks(needle_passkey_task_list, context_length_list)
 
         # 处理结果格式（为了兼容overall_results.json）

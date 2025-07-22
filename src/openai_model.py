@@ -28,6 +28,8 @@ class OpenAIEmbeddingModel(DRESModel):
         self.l2_norm = not args.no_l2_norm
         self.prefix_type = args.prefix_type
         self.prompt = args.prompt
+        # 添加pool_type支持
+        self.pool_type = getattr(args, 'pool_type', 'avg')
         self.max_retries = getattr(args, 'max_retries', 3)
         self.retry_delay = getattr(args, 'retry_delay', 1)
         # Add max_input_tokens parameter, reserve some space for special tokens
@@ -57,6 +59,7 @@ class OpenAIEmbeddingModel(DRESModel):
         logger.info(f"Batch Size: {self.batch_size}")
         logger.info(f"L2 Norm: {self.l2_norm}")
         logger.info(f"Prefix Type: {self.prefix_type}")
+        logger.info(f"Pool Type: {self.pool_type}")
         logger.info(f"Max Input Tokens (effective): {self.max_input_tokens}")
 
     def _truncate_text(self, text: str, prefix: str = "") -> str:

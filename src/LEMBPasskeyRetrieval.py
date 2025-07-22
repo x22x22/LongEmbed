@@ -47,23 +47,101 @@ class LEMBPasskeyRetrieval(AbsTaskRetrieval):
         os.makedirs(self._CACHE_DIR, exist_ok=True)
         return os.path.join(self._CACHE_DIR, f"passkey_data_{context_length}.pkl")
 
-    def _get_encoding_cache_path(self, text_hash, encoding_type="default"):
+    def _get_encoding_cache_path(self, cache_key, encoding_type="default"):
         """获取编码缓存文件路径"""
         os.makedirs(self._ENCODING_CACHE_DIR, exist_ok=True)
-        return os.path.join(self._ENCODING_CACHE_DIR, f"encoding_{encoding_type}_{text_hash}.npy")
+        return os.path.join(self._ENCODING_CACHE_DIR, f"encoding_{encoding_type}_{cache_key}.npy")
 
-    def _get_text_hash(self, text):
-        """获取文本的哈希值作为缓存键"""
-        if isinstance(text, list):
+    def _get_comprehensive_cache_key(self, model, texts, encoding_type="default", batch_size=32, **kwargs):
+        """获取综合的缓存键，包含文本、模型、参数等信息"""
+        # 1. 文本内容哈希
+        if isinstance(texts, str):
+            texts = [texts]
+        
+        if isinstance(texts, list):
             # 对于文本列表，计算整个列表的哈希
-            combined_text = "\n".join(str(t) for t in text)
+            combined_text = "\n".join(str(t) for t in texts)
         else:
-            combined_text = str(text)
-        return hashlib.md5(combined_text.encode('utf-8')).hexdigest()
+            combined_text = str(texts)
+        
+        # 2. 构建完整的缓存键组件
+        cache_components = [
+            f"text_hash:{hashlib.md5(combined_text.encode('utf-8')).hexdigest()}",
+            f"encoding_type:{encoding_type}",
+            f"batch_size:{batch_size}",
+            f"text_count:{len(texts)}"
+        ]
+        
+        # 3. 添加模型标识符
+        try:
+            # 尝试获取模型的唯一标识
+            if hasattr(model, 'model_name_or_path'):
+                model_id = str(model.model_name_or_path)
+            elif hasattr(model, 'model_name'):
+                model_id = str(model.model_name)
+            elif hasattr(model, '__class__'):
+                model_id = model.__class__.__name__
+            else:
+                model_id = str(type(model))
+            
+            cache_components.append(f"model:{hashlib.md5(model_id.encode('utf-8')).hexdigest()[:8]}")
+        except:
+            cache_components.append("model:unknown")
+        
+        # 4. 添加pool_type（重要！）
+        pool_type = None
+        # 优先从kwargs中获取pool_type
+        if 'pool_type' in kwargs:
+            pool_type = kwargs['pool_type']
+        # 其次从模型属性中获取
+        elif hasattr(model, 'pool_type'):
+            pool_type = model.pool_type
+        # 如果找不到，使用默认值
+        if pool_type is None:
+            pool_type = "unknown"
+        
+        cache_components.append(f"pool_type:{pool_type}")
+        
+        # 5. 添加其他重要的kwargs参数
+        if kwargs:
+            # 只包含可能影响编码结果的重要参数（排除pool_type，因为已经单独处理）
+            important_params = {}
+            for key, value in kwargs.items():
+                if key in ['max_length', 'truncation', 'padding', 'return_tensors', 'normalize_embeddings', 
+                          'pos_mode', 'encode_max_length', 'prefix_type', 'l2_norm']:
+                    important_params[key] = value
+            
+            if important_params:
+                params_str = json.dumps(important_params, sort_keys=True, ensure_ascii=False)
+                params_hash = hashlib.md5(params_str.encode('utf-8')).hexdigest()[:8]
+                cache_components.append(f"params:{params_hash}")
+        
+        # 6. 添加模型的其他关键属性
+        try:
+            model_attrs = []
+            if hasattr(model, 'prefix_type'):
+                model_attrs.append(f"prefix_type:{model.prefix_type}")
+            if hasattr(model, 'l2_norm'):
+                model_attrs.append(f"l2_norm:{model.l2_norm}")
+            if hasattr(model, 'encode_max_length'):
+                model_attrs.append(f"max_len:{model.encode_max_length}")
+            
+            if model_attrs:
+                model_attrs_str = "|".join(model_attrs)
+                model_attrs_hash = hashlib.md5(model_attrs_str.encode('utf-8')).hexdigest()[:8]
+                cache_components.append(f"model_attrs:{model_attrs_hash}")
+        except:
+            pass
+        
+        # 7. 生成最终的缓存键
+        cache_key_str = "|".join(cache_components)
+        final_cache_key = hashlib.md5(cache_key_str.encode('utf-8')).hexdigest()
+        
+        return final_cache_key
 
-    def _load_encoding_from_cache(self, text_hash, encoding_type="default"):
+    def _load_encoding_from_cache(self, cache_key, encoding_type="default"):
         """从缓存加载编码结果"""
-        cache_path = self._get_encoding_cache_path(text_hash, encoding_type)
+        cache_path = self._get_encoding_cache_path(cache_key, encoding_type)
         if os.path.exists(cache_path):
             try:
                 encoding = np.load(cache_path)
@@ -73,9 +151,9 @@ class LEMBPasskeyRetrieval(AbsTaskRetrieval):
                 return None
         return None
 
-    def _save_encoding_to_cache(self, text_hash, encoding, encoding_type="default"):
+    def _save_encoding_to_cache(self, cache_key, encoding, encoding_type="default"):
         """保存编码结果到缓存"""
-        cache_path = self._get_encoding_cache_path(text_hash, encoding_type)
+        cache_path = self._get_encoding_cache_path(cache_key, encoding_type)
         try:
             np.save(cache_path, encoding)
         except Exception as e:
@@ -86,16 +164,41 @@ class LEMBPasskeyRetrieval(AbsTaskRetrieval):
         if isinstance(texts, str):
             texts = [texts]
         
-        text_hash = self._get_text_hash(texts)
+        # 生成综合缓存键
+        cache_key = self._get_comprehensive_cache_key(model, texts, encoding_type, batch_size, **kwargs)
+        
+        # 收集调试信息
+        debug_info = []
+        debug_info.append(f"texts={len(texts)}")
+        debug_info.append(f"type={encoding_type}")
+        debug_info.append(f"batch={batch_size}")
+        
+        # 添加pool_type调试信息
+        pool_type = None
+        if 'pool_type' in kwargs:
+            pool_type = kwargs['pool_type']
+        elif hasattr(model, 'pool_type'):
+            pool_type = model.pool_type
+        if pool_type:
+            debug_info.append(f"pool={pool_type}")
+        
+        # 添加模型信息
+        if hasattr(model, 'model_name_or_path'):
+            model_short = os.path.basename(str(model.model_name_or_path))
+            debug_info.append(f"model={model_short}")
+        elif hasattr(model, '__class__'):
+            debug_info.append(f"model={model.__class__.__name__}")
+        
+        debug_str = ", ".join(debug_info)
         
         # 尝试从缓存加载
-        cached_encoding = self._load_encoding_from_cache(text_hash, encoding_type)
+        cached_encoding = self._load_encoding_from_cache(cache_key, encoding_type)
         if cached_encoding is not None:
-            print(f"🎯 编码缓存命中: {len(texts)} 个文本 (type: {encoding_type})")
+            print(f"🎯 编码缓存命中: {debug_str} (key: {cache_key[:8]}...)")
             return cached_encoding
         
         # 缓存未命中，调用模型编码
-        print(f"🔄 编码缓存未命中，调用模型编码: {len(texts)} 个文本 (type: {encoding_type})")
+        print(f"🔄 编码缓存未命中，调用模型编码: {debug_str} (key: {cache_key[:8]}...)")
         start_time = time.time()
         
         # 根据编码类型选择不同的编码方法
@@ -110,10 +213,10 @@ class LEMBPasskeyRetrieval(AbsTaskRetrieval):
             encoding = model.encode(texts, batch_size=batch_size, **kwargs)
         
         elapsed = time.time() - start_time
-        print(f"✅ 模型编码完成: {len(texts)} 个文本，耗时 {elapsed:.1f}s (type: {encoding_type})")
+        print(f"✅ 模型编码完成: {debug_str}, 耗时 {elapsed:.1f}s")
         
         # 保存到缓存
-        self._save_encoding_to_cache(text_hash, encoding, encoding_type)
+        self._save_encoding_to_cache(cache_key, encoding, encoding_type)
         
         return encoding
 
@@ -330,3 +433,61 @@ class LEMBPasskeyRetrieval(AbsTaskRetrieval):
         self.relevant_docs = {self._EVAL_SPLIT: qrels}
 
         self.data_loaded = True 
+
+    def clear_encoding_cache(self, older_than_days=7):
+        """清理编码缓存目录中的旧文件"""
+        if not os.path.exists(self._ENCODING_CACHE_DIR):
+            print("📁 编码缓存目录不存在，无需清理")
+            return
+        
+        import time
+        current_time = time.time()
+        days_in_seconds = older_than_days * 24 * 60 * 60
+        
+        cleared_count = 0
+        total_count = 0
+        
+        print(f"🧹 开始清理 {older_than_days} 天前的编码缓存...")
+        
+        for filename in os.listdir(self._ENCODING_CACHE_DIR):
+            if filename.endswith('.npy'):
+                file_path = os.path.join(self._ENCODING_CACHE_DIR, filename)
+                total_count += 1
+                
+                try:
+                    file_mtime = os.path.getmtime(file_path)
+                    if current_time - file_mtime > days_in_seconds:
+                        os.remove(file_path)
+                        cleared_count += 1
+                except Exception as e:
+                    print(f"⚠️ 清理文件失败 {filename}: {e}")
+        
+        print(f"✅ 编码缓存清理完成: 清理了 {cleared_count}/{total_count} 个文件")
+
+    def get_cache_info(self):
+        """获取缓存信息统计"""
+        info = {
+            "data_cache_dir": self._CACHE_DIR,
+            "encoding_cache_dir": self._ENCODING_CACHE_DIR,
+            "data_cache_files": 0,
+            "encoding_cache_files": 0,
+            "total_cache_size_mb": 0
+        }
+        
+        # 统计数据缓存
+        if os.path.exists(self._CACHE_DIR):
+            for filename in os.listdir(self._CACHE_DIR):
+                if filename.endswith('.pkl'):
+                    info["data_cache_files"] += 1
+                    file_path = os.path.join(self._CACHE_DIR, filename)
+                    info["total_cache_size_mb"] += os.path.getsize(file_path) / (1024 * 1024)
+        
+        # 统计编码缓存
+        if os.path.exists(self._ENCODING_CACHE_DIR):
+            for filename in os.listdir(self._ENCODING_CACHE_DIR):
+                if filename.endswith('.npy'):
+                    info["encoding_cache_files"] += 1
+                    file_path = os.path.join(self._ENCODING_CACHE_DIR, filename)
+                    info["total_cache_size_mb"] += os.path.getsize(file_path) / (1024 * 1024)
+        
+        return info 
